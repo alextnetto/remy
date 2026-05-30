@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+**/node_modules/
+.pnp.*
+.pnpm-store/
+
+# next.js
+**/.next/
+**/out/
+**/build/
+.vercel/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# python
+**/.venv/
+**/__pycache__/
+*.py[cod]
+.python-version
+
+# env / secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# prisma (generated client lives in node_modules)
+# keep migrations committed
+
+# misc
+.DS_Store
+*.log
+coverage/
