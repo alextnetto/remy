@@ -8,7 +8,7 @@ design rationale lives in [`docs/superpowers/specs/2026-05-30-prm-voice-v1-desig
 | Piece | Status |
 |---|---|
 | **Web app** (`web/`) — 3 mobile screens + 24 CRUD API routes + Prisma + seed | ✅ Built & **verified end-to-end** against a live Postgres (migrate + seed + all screens rendering real data, 0 console errors). See [`docs/screenshots/`](docs/screenshots/). |
-| **Voice server** (`server/`) — Pipecat main + action workers, 16 tools | ✅ Imports + dry-constructs the full worker graph (Gradium STT/TTS + OpenAI LLM; NVIDIA branches construct). ⏳ Needs live API keys + a mic to test a real voice call. |
+| **Voice server** (`server/`) — Pipecat main + action workers, 16 tools | ✅ NVIDIA Nemotron + Parakeet + Gradium (no OpenAI). Boots on :7860 (`/start`); all services construct against the live endpoints; Nemotron tool-calling verified. ⏳ Live audio round-trip needs a real browser + mic. |
 | **Shared contracts** — typed API client, RTVI protocol (TS↔Python) | ✅ Locked & mirrored. |
 
 The app is **Architecture B**: a standalone Next.js app (works with no voice) + an optional Pipecat voice agent that drives it. The voice agent and the UI both go through the **same Next.js API**, so they can't desync.
@@ -23,11 +23,11 @@ The app is **Architecture B**: a standalone Next.js app (works with no voice) + 
 | Need | For | Env var(s) | Notes |
 |---|---|---|---|
 | **Postgres** | the shared world | `DATABASE_URL` (web) | Local Docker (below) or Supabase. |
-| **LLM** | the voice agent's reasoning + tool-calling | `OPENAI_API_KEY` (default) **or** `NEMOTRON_LLM_URL`/`_MODEL`/`_API_KEY` | Start on OpenAI (`gpt-4.1`) — reliable tool-calling. NVIDIA Nemotron is a `LLM_PROVIDER=nvidia` toggle. |
-| **STT** | speech → text | `GRADIUM_API_KEY` (default) **or** `NVIDIA_ASR_URL` | Gradium by default; NVIDIA Parakeet via `STT_PROVIDER=nvidia`. |
+| **LLM** | voice reasoning + tool-calling | `NEMOTRON_LLM_URL` / `_MODEL` (+ `_API_KEY`) | NVIDIA Nemotron-3-Super (vLLM, OpenAI-compatible `/v1`). Tool-calling verified live. |
+| **STT** | speech → text | `NVIDIA_ASR_URL` | NVIDIA Parakeet streaming ASR (16-bit PCM, 16 kHz, mono). |
 | **TTS** | text → speech | `GRADIUM_API_KEY` (+ optional `GRADIUM_VOICE_ID`) | Gradium. |
 
-> ⚠️ The hackathon-hosted NVIDIA Parakeet/Nemotron endpoints are likely offline. The **default `openai` + `gradium` path is the working demo config**; flip to NVIDIA only with live endpoints.
+> ✅ As of 2026-05-30 the NVIDIA endpoints (Parakeet ASR + Nemotron LLM) and the Gradium key from `yc-voice-agents-hackathon/server/.env` are **live**, and `server/.env` is already configured with them. The stack is **NVIDIA + Gradium only — no OpenAI**.
 
 ## Local dev
 
@@ -45,7 +45,7 @@ pnpm dev                         # → http://localhost:3000
 
 # 2. Voice agent (optional overlay) — in a second terminal
 cd server
-cp .env.example .env             # set OPENAI_API_KEY + GRADIUM_API_KEY; PRM_API_BASE_URL=http://localhost:3000
+cp .env.example .env             # set NEMOTRON_LLM_URL, NVIDIA_ASR_URL, GRADIUM_API_KEY; PRM_API_BASE_URL=http://localhost:3000
 uv sync
 uv run bot.py                    # → WebRTC bot-start endpoint on http://localhost:7860/start
 # then in web/.env set NEXT_PUBLIC_BOT_START_URL=http://localhost:7860/start and restart `pnpm dev`
@@ -73,7 +73,7 @@ The seed is **deterministic and anchored to 2026-05-30** (so the Today surface i
 - Defined once in `web/src/lib/rtvi-protocol.ts` and mirrored in `server/prm/protocol.py`.
 
 ## Open items / risks
-1. **NVIDIA endpoints** — secure managed/self-hosted Nemotron + Parakeet, or run the demo on `openai`+`gradium` (default).
+1. **NVIDIA endpoints are hackathon-hosted** — currently live, but ephemeral; if they go down, point `NEMOTRON_LLM_URL` / `NVIDIA_ASR_URL` at managed or self-hosted Nemotron + Parakeet. Gradium TTS is a hosted SaaS.
 2. **Nemotron tool-calling fidelity** — validate single-tool-per-turn before relying on the NVIDIA path (the 2-inference design depends on it).
 3. **Shared-world drift** — it's a single open dataset; reset via `POST /api/admin/reset` (consider a daily cron). Seed reminder timestamps are absolute (anchored to 2026-05-30).
 4. **A real voice call hasn't been run** (no keys/mic in the build env) — first live test: connect the dock and try "What do I know about Sarah?" and "Add a note to David: …".

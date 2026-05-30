@@ -24,12 +24,12 @@ A standalone Next.js app over Postgres that works **without** voice. The Pipecat
 
 ## Stack
 
-Next.js · shadcn/ui · Postgres (Supabase) · Pipecat · NVIDIA Parakeet (STT) · NVIDIA Nemotron (LLM) · Gradium (TTS) — with an OpenAI + Gradium fallback path.
+Next.js · shadcn/ui · Postgres (Supabase) · Pipecat · NVIDIA Parakeet (STT) · NVIDIA Nemotron (LLM) · Gradium (TTS).
 
 ## Status
 
 - **Web app:** built and **verified end-to-end** against a live Postgres (migrate + seed + all three screens rendering the seeded world, 0 console errors).
-- **Voice server:** builds and dry-constructs the full worker graph; needs live API keys + a mic for a real voice call.
+- **Voice server:** NVIDIA Nemotron + Parakeet + Gradium (no OpenAI). All services construct against the live endpoints and Nemotron tool-calling is verified; a real voice call needs a browser + mic.
 
 ## Get started
 

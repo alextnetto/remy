@@ -1,7 +1,8 @@
-"""PRM Voice — main voice worker (skeleton).
+"""PRM Voice — main voice worker.
 
-Adapted from ``pipecat-music-player/server/bot.py``. The main
-``PipelineWorker`` runs the conversation (STT -> LLM -> TTS) and owns the
+Adapted from ``pipecat-music-player/server/bot.py`` with the NVIDIA + Gradium
+service stack of the working ``yc-voice-agents-hackathon`` Nemotron bot. The
+main ``PipelineWorker`` runs the conversation (STT -> LLM -> TTS) and owns the
 transport + RTVI bridge to the client. Its single tool, ``handle_request``,
 forwards each spoken request to the ``PRMActionWorker`` (see
 ``action_worker.py``), which owns the PRM tools, drives the web app with UI
@@ -16,18 +17,17 @@ Architecture (spec §6, two inferences per turn: route -> act)::
 
     PRMActionWorker (UIWorker): PRM tools + @ui_event screen handlers
 
-Swap points (spec §7):
-- STT: ``STT_PROVIDER`` -> Gradium (dev/fallback) | NVIDIA Parakeet.
-- TTS: Gradium (primary).
-- LLM provider branch lives in ``llm.py`` (``LLM_PROVIDER``).
+Services (NVIDIA + Gradium, matching the hackathon Nemotron bot):
+- STT: NVIDIA Parakeet streaming ASR over WebSocket (``NVIDIA_ASR_URL``).
+- LLM: Nemotron-3-Super via vLLM, OpenAI-compatible (see ``llm.py``).
+- TTS: Gradium (``GRADIUM_API_KEY`` / ``GRADIUM_VOICE_ID``).
 
 Run locally::
 
     uv run bot.py
 
-Requires (see .env.example): GRADIUM_API_KEY (+ GRADIUM_VOICE_ID), an LLM
-provider key (OPENAI_API_KEY by default), and PRM_API_BASE_URL pointing at
-the Next.js app.
+Requires (see .env.example): GRADIUM_API_KEY (+ GRADIUM_VOICE_ID),
+NEMOTRON_LLM_URL, NVIDIA_ASR_URL, and PRM_API_BASE_URL (the Next.js app).
 """
 
 import os
@@ -52,9 +52,11 @@ from pipecat.services.gradium.tts import GradiumTTSService
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
+from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
 
 from action_worker import PRMActionWorker
 from llm import create_llm_service
+from prm.services.nvidia_stt import NVidiaWebSocketSTTService
 
 load_dotenv(override=True)
 
@@ -123,23 +125,11 @@ async def handle_request(params: FunctionCallParams, query: str):
 
 
 def _create_stt():
-    """Build the STT service per ``STT_PROVIDER`` (spec §7 swap point).
-
-    - ``gradium`` (default / fallback): GradiumSTTService.
-    - ``nvidia``: NVIDIA Parakeet over WebSocket (NVidiaWebSocketSTTService).
-    """
-    provider = (os.getenv("STT_PROVIDER") or "gradium").strip().lower()
-    if provider == "nvidia":
-        from prm.services.nvidia_stt import NVidiaWebSocketSTTService
-
-        return NVidiaWebSocketSTTService(
-            url=os.getenv("NVIDIA_ASR_URL", "ws://localhost:8081"),
-            strip_interim_prefix=True,
-        )
-
-    from pipecat.services.gradium.stt import GradiumSTTService
-
-    return GradiumSTTService(api_key=os.environ["GRADIUM_API_KEY"])
+    """NVIDIA Parakeet streaming STT over WebSocket (16-bit PCM, 16 kHz, mono)."""
+    return NVidiaWebSocketSTTService(
+        url=os.getenv("NVIDIA_ASR_URL", "ws://localhost:8081"),
+        strip_interim_prefix=True,
+    )
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
@@ -148,16 +138,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
 
     stt = _create_stt()
-    # Only override the voice when GRADIUM_VOICE_ID is set: passing voice=None
-    # would clobber GradiumTTSService's built-in default voice (its Settings
-    # treat None as a given value), so leave it unset to fall back to default.
-    voice_id = os.getenv("GRADIUM_VOICE_ID")
-    tts_settings = (
-        GradiumTTSService.Settings(voice=voice_id) if voice_id else GradiumTTSService.Settings()
-    )
     tts = GradiumTTSService(
         api_key=os.environ["GRADIUM_API_KEY"],
-        settings=tts_settings,
+        settings=GradiumTTSService.Settings(
+            voice=os.getenv("GRADIUM_VOICE_ID", "Eu9iL_CYe8N-Gkx_"),
+        ),
     )
     llm = create_llm_service(system_prompt=VOICE_PROMPT)
     llm.register_direct_function(handle_request, cancel_on_interruption=False, timeout_secs=30)
@@ -165,7 +150,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     context = LLMContext(tools=ToolsSchema(standard_tools=[handle_request]))
     aggregators = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(),
+            user_turn_strategies=FilterIncompleteUserTurnStrategies(),
+        ),
     )
 
     pipeline = Pipeline(
@@ -183,7 +171,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     worker = PipelineWorker(
         pipeline,
         name=MAIN_NAME,
-        params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
+        params=PipelineParams(
+            enable_metrics=True,
+            enable_usage_metrics=True,
+            # NVIDIA Parakeet needs 16 kHz input; Gradium TTS outputs 24 kHz
+            # (matches the working hackathon bot-nemotron.py).
+            audio_in_sample_rate=16000,
+            audio_out_sample_rate=24000,
+        ),
         idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
     )
 
