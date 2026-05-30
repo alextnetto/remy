@@ -1,0 +1,27 @@
+# PRM Voice — local dev services.
+# Postgres for the shared world (spec §4/§8). Production uses Supabase.
+#
+#   docker compose up -d db
+#   # then in web/: set DATABASE_URL=postgres://prm:prm@localhost:5432/prm
+#   #               pnpm exec prisma migrate dev
+services:
+  db:
+    image: postgres:16
+    container_name: prm-voice-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: prm
+      POSTGRES_PASSWORD: prm
+      POSTGRES_DB: prm
+    ports:
+      - "5432:5432"
+    volumes:
+      - prm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prm -d prm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  prm_pgdata:

@@ -1,0 +1,7 @@
+agent_name = "prm-voice-bot"
+secret_set = "prm-voice-secrets"
+agent_profile = "agent-1x"
+
+[scaling]
+	# Keep one agent warm so the live demo connects instantly (spec §9).
+	min_agents = 1

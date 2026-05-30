@@ -1,0 +1,32 @@
+[project]
+name = "prm-voice-server"
+version = "0.1.0"
+description = "PRM Voice — Pipecat voice server (STT -> LLM -> TTS + RTVI + PRM action worker)"
+readme = "README.md"
+# Pinned to 3.12: system python is 3.14 which pipecat (and several extras)
+# do not yet support. uv fetches a 3.12 interpreter via .python-version.
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # pipecat extras mirror the NVIDIA-showcase demo (yc-voice-agents-hackathon):
+    #   gradium  -> GradiumTTSService / GradiumSTTService (TTS primary, STT fallback)
+    #   openai   -> OpenAILLMService + the vLLM/Nemotron OpenAI-compatible path
+    #   silero   -> SileroVADAnalyzer
+    #   webrtc   -> SmallWebRTC transport (v1)
+    #   websocket-> WebsocketSTTService base for NVidiaWebSocketSTTService (Parakeet)
+    #   runner   -> pipecat.runner.* (create_transport, run.main)
+    #   daily    -> Daily transport (scale option, spec §7)
+    "pipecat-ai[gradium,openai,silero,webrtc,websocket,runner,daily]>=1.3.0",
+    "pipecatcloud>=0.7.1",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.11,<1",
+]
+
+[tool.ruff]
+line-length = 100
+[tool.ruff.lint]
+select = ["I", "UP"]

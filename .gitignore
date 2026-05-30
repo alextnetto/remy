@@ -17,7 +17,10 @@ next-env.d.ts
 **/.venv/
 **/__pycache__/
 *.py[cod]
+# Ignore ad-hoc local pyenv prefs, but commit the server's pinned version
+# (3.12) so uv/CI resolve the right interpreter.
 .python-version
+!server/.python-version
 
 # env / secrets
 .env
@@ -32,3 +35,4 @@ next-env.d.ts
 .DS_Store
 *.log
 coverage/
+**/.ruff_cache/

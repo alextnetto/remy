@@ -1,0 +1,164 @@
+// PRM Voice — Prisma schema
+// Implements the 9-table data model from the v1 design spec (§4).
+// Conventions:
+//   - uuid primary keys via @default(uuid())
+//   - timestamptz timestamps (@db.Timestamptz) with @default(now()) / @updatedAt
+//   - onDelete: Cascade on child relations
+//   - PascalCase models mapped to snake_case tables via @@map
+// Run: `pnpm exec prisma generate` / `pnpm exec prisma validate`.
+// Do NOT run migrate without a live DB.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7: the connection URL lives in prisma.config.ts (datasource.url),
+// not here. The CLI reads it from there; PrismaClient takes an adapter.
+datasource db {
+  provider = "postgresql"
+}
+
+/// A person in the personal relationship manager.
+/// NOTE: birthday is NOT a column here — it lives in important_dates (label "Birthday").
+model Person {
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String
+  avatarUrl        String?  @map("avatar_url")
+  relationshipToMe String?  @map("relationship_to_me") // freeform: "friend", "family", "colleague", "mentor"
+  story            String? // curated bio / narrative
+  base             String? // home base / location (freeform city/region)
+  interests        String[] @default([])
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  contactMethods      ContactMethod[]
+  importantDates      ImportantDate[]
+  notes               Note[]
+  personOrganizations PersonOrganization[]
+  momentPeople        MomentPerson[]
+  reminders           Reminder[]
+
+  @@map("people")
+}
+
+/// Flexible contact handle — covers phone, email, website, LinkedIn, socials.
+model ContactMethod {
+  id       String  @id @default(uuid()) @db.Uuid
+  personId String  @map("person_id") @db.Uuid
+  kind     String // phone | email | website | linkedin | instagram | x | whatsapp | telegram | other
+  value    String // number / url / handle
+  label    String? // e.g. "work", "personal"
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@map("contact_methods")
+}
+
+/// Important date that feeds the "Today" surface (birthday lives here).
+model ImportantDate {
+  id        String   @id @default(uuid()) @db.Uuid
+  personId  String   @map("person_id") @db.Uuid
+  label     String // "Birthday", "Work anniversary", …
+  date      DateTime @db.Date
+  recurring Boolean  @default(true) // birthday = a recurring entry here
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@map("important_dates")
+}
+
+/// Timestamped note for atomic recall (person.story remains the bio).
+model Note {
+  id        String   @id @default(uuid()) @db.Uuid
+  personId  String   @map("person_id") @db.Uuid
+  body      String
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@map("notes")
+}
+
+/// Lightweight organization — no dedicated screen in v1, rendered on the person.
+model Organization {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  type        String? // company | school | club | nonprofit | family | other
+  description String?
+  base        String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  personOrganizations PersonOrganization[]
+  moments             Moment[]
+
+  @@map("organizations")
+}
+
+/// Join: person ↔ organization with a relationship label and role.
+model PersonOrganization {
+  id           String  @id @default(uuid()) @db.Uuid
+  personId     String  @map("person_id") @db.Uuid
+  orgId        String  @map("org_id") @db.Uuid
+  relationship String? // "works at", "studied at", "founder of", "volunteers at"
+  role         String? // e.g. "Engineer"
+
+  person       Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, orgId, relationship])
+  @@index([personId])
+  @@index([orgId])
+  @@map("person_organizations")
+}
+
+/// A shared, multi-person moment ("where / who / description").
+model Moment {
+  id          String    @id @default(uuid()) @db.Uuid
+  title       String? // optional short title
+  description String
+  place       String? // the "where" (freeform; `place` avoids the SQL `where` keyword)
+  occurredAt  DateTime? @map("occurred_at") @db.Date
+  orgId       String?   @map("org_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization?  @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  momentPeople MomentPerson[]
+
+  @@index([orgId])
+  @@map("moments")
+}
+
+/// Join: the "who" of a moment — many-to-many person ↔ moment.
+model MomentPerson {
+  momentId String @map("moment_id") @db.Uuid
+  personId String @map("person_id") @db.Uuid
+
+  moment Moment @relation(fields: [momentId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([momentId, personId])
+  @@index([personId])
+  @@map("moment_people")
+}
+
+/// Manual follow-up reminder for a person.
+model Reminder {
+  id        String   @id @default(uuid()) @db.Uuid
+  personId  String   @map("person_id") @db.Uuid
+  text      String
+  dueAt     DateTime @map("due_at") @db.Timestamptz(6)
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([dueAt])
+  @@map("reminders")
+}
