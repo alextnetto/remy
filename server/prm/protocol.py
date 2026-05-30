@@ -35,7 +35,7 @@ from typing import Any, Literal, TypedDict
 ToastLevel = Literal["info", "success", "error"]
 
 #: Literal union of every UICommand ``type``.
-UICommandType = Literal["navigate", "refresh", "highlight", "toast"]
+UICommandType = Literal["navigate", "refresh", "highlight", "toast", "search"]
 
 
 class NavigateCommand(TypedDict):
@@ -66,8 +66,15 @@ class ToastCommand(TypedDict, total=False):
     level: ToastLevel  # optional
 
 
+class SearchCommand(TypedDict):
+    """Set the Home search box to ``query`` and filter the people list (navigates Home first)."""
+
+    type: Literal["search"]
+    query: str
+
+
 #: A command the server sends to drive the client UI. Discriminated on ``type``.
-UICommand = NavigateCommand | RefreshCommand | HighlightCommand | ToastCommand
+UICommand = NavigateCommand | RefreshCommand | HighlightCommand | ToastCommand | SearchCommand
 
 
 # ===========================================================================

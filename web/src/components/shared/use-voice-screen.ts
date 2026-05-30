@@ -40,6 +40,19 @@ export function useVoiceRefresh(refetch: () => void): void {
 }
 
 /**
+ * Drive Home's search box from the voice agent. Applies any pending search
+ * stashed before a navigate-to-Home (on mount), then subscribes to live
+ * `search` commands. Pass the stable React state setter for `setQuery`.
+ */
+export function useVoiceSearch(setQuery: (q: string) => void): void {
+  useEffect(() => {
+    const p = voiceBridge.consumePendingSearch();
+    if (p !== null) setQuery(p);
+    return voiceBridge.onSearch((q) => setQuery(q));
+  }, [setQuery]);
+}
+
+/**
  * Default highlight consumer. Mount once near the root of a screen. When the
  * agent emits a highlight for an id, scroll the matching element into view and
  * pulse a ring on it.

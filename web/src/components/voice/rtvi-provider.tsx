@@ -34,7 +34,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   PipecatClient,
@@ -55,6 +55,7 @@ import { voiceBridge } from "@/lib/voice-bridge";
 import type {
   HighlightCommand,
   NavigateCommand,
+  SearchCommand,
   ToastCommand,
   UICommandType,
 } from "@/lib/rtvi-protocol";
@@ -240,6 +241,7 @@ function VoiceState({ children }: { children: ReactNode }) {
  */
 function UICommandBridge() {
   const router = useRouter();
+  const pathname = usePathname();
 
   useRTVIClientEvent(
     RTVIEvent.UICommand,
@@ -278,13 +280,26 @@ function UICommandBridge() {
             else toast(text);
             break;
           }
+          case "search": {
+            const q = (payload as Partial<SearchCommand>).query;
+            const query = typeof q === "string" ? q : "";
+            // On Home: fill the search box directly. Elsewhere: stash it and
+            // navigate Home, where `useVoiceSearch` applies it on mount.
+            if (pathname === "/") {
+              voiceBridge.emitSearch(query);
+            } else {
+              voiceBridge.setPendingSearch(query);
+              router.push("/");
+            }
+            break;
+          }
           default: {
             // Unknown command — ignore so a newer server can't break us.
             break;
           }
         }
       },
-      [router],
+      [router, pathname],
     ),
   );
 

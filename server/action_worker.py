@@ -56,7 +56,12 @@ argument; the tool resolves it to a record.
 
 ## Choosing a tool
 - Opening / showing a person -> navigate_to_person.
-- Filtering or searching the people list -> search_people.
+- Searching, filtering, or any "who…" question across people ("who lives in \
+San Francisco", "who plays tennis", "who do I know in the USA", "show my \
+colleagues") -> search_people. Pass the user's FULL question as `query` — an \
+LLM-powered search bar reasons over everyone and shows the matches (e.g. "who \
+lives in San Francisco" -> query "who lives in San Francisco"). Empty `query` \
+clears the search and shows everyone.
 - Showing reminders / the Today view -> open_reminders.
 - "go home" / "go back" -> go_home / go_back.
 - Creating or changing data (a person, a note, a contact, a date, an org \
@@ -340,31 +345,20 @@ class PRMActionWorker(UIWorker):
 
     @tool
     async def search_people(self, params: FunctionCallParams, query: str):
-        """Search/filter people and show the results on Home.
+        """Search people by handing the Home search bar the user's question.
+
+        The Home search bar is LLM-powered: it reasons over everyone and shows
+        the people who match. This tool just fills it with the user's question
+        and lets the bar manifest the results — it does not reason or fetch
+        here. Empty ``query`` clears the search and shows everyone.
 
         Args:
-            query: Free-text filter (name / interest / org). Empty shows all.
+            query: The user's full question / search, verbatim (e.g. "who lives
+                in San Francisco", "who plays tennis").
         """
         logger.info(f"{self}: search_people({query!r})")
-        try:
-            people = await self.api.list_people(query or None)
-        except PRMApiError as exc:
-            await self._fail(params, "I couldn't search right now.")
-            logger.warning(f"{self}: search_people failed: {exc}")
-            return
-        # Drive Home; the standalone app applies the filter on refresh.
-        await self._navigate("/")
-        await self._refresh()
-        count = len(people or [])
-        if not query:
-            spoken = f"Showing all {count} people." if count else "No people yet."
-        elif count == 0:
-            spoken = f"I didn't find anyone matching {query}."
-        elif count == 1:
-            spoken = f"Found one match: {people[0].get('name')}."
-        else:
-            names = ", ".join(p.get("name", "") for p in people[:3])
-            spoken = f"Found {count} people, including {names}."
+        await self.send_command("search", {"query": query or ""})
+        spoken = "Here's everyone." if not (query or "").strip() else "Let me pull those up."
         await self.respond_to_job(spoken, tts_speak=True)
         await params.result_callback(None)
 

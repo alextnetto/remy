@@ -143,6 +143,7 @@ export interface TodayResponse {
 export interface ApiContract {
   // People
   "GET /api/people": { query: { query?: string }; response: PersonSummary[] };
+  "GET /api/people/search": { query: { q?: string }; response: PersonSummary[] };
   "POST /api/people": { body: CreatePersonBody; response: Person };
   "GET /api/people/:id": { params: { id: UUID }; response: PersonDetail };
   "PATCH /api/people/:id": { params: { id: UUID }; body: UpdatePersonBody; response: Person };
@@ -286,6 +287,9 @@ export const api = {
     /** `GET /api/people?query=` → PersonSummary[] */
     list: (query?: string, signal?: AbortSignal) =>
       request<PersonSummary[]>("GET", "/api/people", { query: { query }, signal }),
+    /** `GET /api/people/search?q=` → PersonSummary[] (LLM-filtered) */
+    search: (q?: string, signal?: AbortSignal) =>
+      request<PersonSummary[]>("GET", "/api/people/search", { query: { q }, signal }),
     /** `POST /api/people` → Person */
     create: (body: CreatePersonBody, signal?: AbortSignal) =>
       request<Person>("POST", "/api/people", { body, signal }),

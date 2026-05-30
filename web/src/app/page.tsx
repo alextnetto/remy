@@ -16,6 +16,7 @@ import {
   useHighlightTarget,
   useReportScreen,
   useVoiceRefresh,
+  useVoiceSearch,
 } from "@/components/shared/use-voice-screen";
 import { api, ApiError } from "@/lib/api-contract";
 import type {
@@ -35,8 +36,11 @@ export default function HomePage() {
     importantDates: ImportantDateWithPerson[];
   } | null>(null);
   const [error, setError] = React.useState(false);
+  const [searching, setSearching] = React.useState(false);
 
   useHighlightTarget();
+  // Voice agent can set the search box ("who lives in San Francisco").
+  useVoiceSearch(setQuery);
 
   // Debounce the search query.
   React.useEffect(() => {
@@ -45,15 +49,22 @@ export default function HomePage() {
   }, [query]);
 
   // --- People list (re-fetches on query change) ---------------------------
+  // The search bar IS the LLM: a non-empty query (typed or set by the voice
+  // agent) runs the natural-language /api/people/search; empty lists everyone.
   const fetchPeople = React.useCallback(
     async (q: string, signal?: AbortSignal) => {
       try {
         setError(false);
-        const list = await api.people.list(q || undefined, signal);
+        setSearching(true);
+        const list = q
+          ? await api.people.search(q, signal)
+          : await api.people.list(undefined, signal);
         setPeople(list);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof ApiError || err instanceof Error) setError(true);
+      } finally {
+        if (!signal?.aborted) setSearching(false);
       }
     },
     [],
@@ -171,6 +182,11 @@ export default function HomePage() {
               </button>
             ) : null}
           </div>
+          {searching && debounced ? (
+            <p className="mt-1.5 px-0.5 text-xs text-muted-foreground" aria-live="polite">
+              Searching…
+            </p>
+          ) : null}
         </div>
 
         {/* People list */}

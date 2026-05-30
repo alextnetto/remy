@@ -54,6 +54,12 @@ export interface ToastCommand {
   level?: ToastLevel;
 }
 
+/** Set the Home search box to `query` and filter the people list (navigates Home first). */
+export interface SearchCommand {
+  type: "search";
+  query: string;
+}
+
 /**
  * A command the server sends to drive the client UI. Discriminated on
  * `type`. The action worker emits these after data ops / navigation.
@@ -62,7 +68,8 @@ export type UICommand =
   | NavigateCommand
   | RefreshCommand
   | HighlightCommand
-  | ToastCommand;
+  | ToastCommand
+  | SearchCommand;
 
 /** Literal union of every {@link UICommand} `type`. */
 export type UICommandType = UICommand["type"];

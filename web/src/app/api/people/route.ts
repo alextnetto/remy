@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/people?query=
- * Search people by name / interests / relationshipToMe (case-insensitive
- * substring). Each result carries `nextReminderAt` = the soonest OPEN
- * reminder's dueAt. Results sorted by name.
+ * Search people by name / relationshipToMe / base / interests
+ * (case-insensitive substring). Each result carries `nextReminderAt` = the
+ * soonest OPEN reminder's dueAt. Results sorted by name.
  */
 export async function GET(request: Request): Promise<NextResponse> {
   const url = new URL(request.url);
@@ -34,6 +34,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     ? people.filter((p) => {
         if (p.name.toLowerCase().includes(query)) return true;
         if ((p.relationshipToMe ?? "").toLowerCase().includes(query)) return true;
+        if ((p.base ?? "").toLowerCase().includes(query)) return true;
         return p.interests.some((i) => i.toLowerCase().includes(query));
       })
     : people;

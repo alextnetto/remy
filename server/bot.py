@@ -1,42 +1,43 @@
 """PRM Voice — main voice worker.
 
-Adapted from ``pipecat-music-player/server/bot.py`` with the NVIDIA + Gradium
-service stack of the working ``yc-voice-agents-hackathon`` Nemotron bot. The
-main ``PipelineWorker`` runs the conversation (STT -> LLM -> TTS) and owns the
-transport + RTVI bridge to the client. Its single tool, ``handle_request``,
-forwards each spoken request to the ``PRMActionWorker`` (see
-``action_worker.py``), which owns the PRM tools, drives the web app with UI
-commands, and speaks the reply back verbatim.
+A pure voice transport (NVIDIA Parakeet STT → Gradium TTS over WebRTC + RTVI).
+There is **no router LLM** in this pipeline: each finished user turn is
+dispatched as a ``respond`` job to :class:`PRMActionWorker`, whose single
+Nemotron LLM (tools registered directly, ``tool_choice`` NOT forced) picks one
+PRM tool, drives the web app with a ``UICommand``, and speaks the reply.
 
-Architecture (spec §6, two inferences per turn: route -> act)::
+Why no router: this mirrors the working ``yc-voice-agents-hackathon`` Nemotron
+bot, where one LLM with concrete tools tool-calls reliably *unforced*. The
+earlier two-LLM "router" design (copied from the OpenAI-based
+``pipecat-music-player``) forced ``tool_choice`` to make Nemotron delegate to a
+single ``handle_request`` tool — and on this vLLM endpoint forcing makes
+Nemotron emit the tool-argument JSON as spoken text (you hear
+``{"query": "..."}``). Removing the router fixes that and is simpler.
 
-    main PipelineWorker (transport + RTVI):
-      transport.in -> STT -> user_agg -> LLM(router) -> TTS -> transport.out -> assistant_agg
-        └── handle_request(query) tool
-              └── worker.job("ui", name="respond", payload={query})
+Architecture::
 
-    PRMActionWorker (UIWorker): PRM tools + @ui_event screen handlers
+    main PipelineWorker (transport + RTVI, NO LLM):
+      transport.in → STT → user_agg → TTS → transport.out → assistant_agg
+        └── on_user_turn_stopped → worker.job("ui", "respond", {query})
 
-Services (NVIDIA + Gradium, matching the hackathon Nemotron bot):
-- STT: NVIDIA Parakeet streaming ASR over WebSocket (``NVIDIA_ASR_URL``).
-- LLM: Nemotron-3-Super via vLLM, OpenAI-compatible (see ``llm.py``).
-- TTS: Gradium (``GRADIUM_API_KEY`` / ``GRADIUM_VOICE_ID``).
+    PRMActionWorker (UIWorker): the single LLM + PRM tools + @ui_event handlers.
+      A @tool sends a UICommand (search / navigate / refresh / …) and calls
+      respond_to_job(tts_speak=True); Pipecat routes that speech back to this
+      worker's TTS.
 
-Run locally::
+Services (NVIDIA + Gradium): STT NVIDIA Parakeet (``NVIDIA_ASR_URL``); LLM
+Nemotron via vLLM (see ``llm.py``, used by the action worker); TTS Gradium.
 
-    uv run bot.py
-
-Requires (see .env.example): GRADIUM_API_KEY (+ GRADIUM_VOICE_ID),
-NEMOTRON_LLM_URL, NVIDIA_ASR_URL, and PRM_API_BASE_URL (the Next.js app).
+Run locally::  uv run bot.py
 """
 
+import asyncio
 import os
 
 from dotenv import load_dotenv
 from loguru import logger
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import TTSSpeakFrame
 from pipecat.pipeline.job_context import JobError
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -49,13 +50,10 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.gradium.tts import GradiumTTSService
-from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
-from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
 
 from action_worker import PRMActionWorker
-from llm import create_llm_service
 from prm.services.nvidia_stt import NVidiaWebSocketSTTService
 
 load_dotenv(override=True)
@@ -63,65 +61,9 @@ load_dotenv(override=True)
 MAIN_NAME = "main"
 UI_NAME = "ui"
 
-
-# The router prompt: never answer directly, never rephrase deictic words —
-# the action worker resolves them against the live screen and speaks the
-# reply (spec §6). Mirrors the music-player VOICE_PROMPT, retargeted to PRM.
-VOICE_PROMPT = """\
-You are the voice layer for a personal relationship manager (PRM). A separate \
-action layer owns all data and screen state and speaks every substantive \
-reply. You do not know what is on screen. You do not navigate, read, or \
-change data on your own.
-
-## Absolute routing rule
-Call ``handle_request`` for every user utterance that involves the PRM — \
-adding or updating people, notes, dates, organizations, moments, or \
-reminders; navigating; or any question about a person or about what's on \
-screen. The action layer delivers the spoken reply itself, so after calling \
-the tool you stay silent — do not confirm, summarize, or rephrase.
-
-Call the tool every time, even on repeats. Do not predict the result and \
-skip the tool. Do not reuse a previous result for a new turn.
-
-## When not to call the tool
-Only respond directly for small talk that doesn't touch the PRM ("hello", \
-"thanks") or a single short clarifying question when the request is genuinely \
-ambiguous.
-
-## Voice rules
-- Plain spoken language only. No markdown, lists, or symbols. Very short.
-- After ``handle_request``, stay silent and let the action layer speak.
-
-## handle_request arguments
-Pass the user's request as a self-contained query. Leave anything that could \
-refer to what's on screen verbatim — "this", "that", "the first one", and \
-pronouns like "her", "him", "their". The user is pointing at what they're \
-looking at; the action layer sees the screen and resolves these. Only rewrite \
-genuine cross-turn references that name a different entity."""
-
-
-async def handle_request(params: FunctionCallParams, query: str):
-    """Delegate the user's request to the PRM action layer.
-
-    Args:
-        query: The user's request, passed verbatim. Resolve cross-turn \
-            references but leave on-screen deixis ("this", "the first one", \
-            "her") untouched for the action layer to resolve.
-    """
-    logger.info(f"handle_request('{query}')")
-    try:
-        async with params.pipeline_worker.job(
-            UI_NAME, name="respond", payload={"query": query}, timeout=30
-        ) as t:
-            pass
-    except JobError as e:
-        logger.warning(f"ui job failed: {e}")
-        await params.result_callback("Something went wrong on my side.")
-        return
-
-    # The action worker either spoke verbatim (tts_speak -> t.response is None)
-    # or returned text for the voice LLM to phrase. Hand it straight back.
-    await params.result_callback(t.response)
+# Keep references to in-flight dispatch tasks so they aren't garbage-collected
+# mid-flight (asyncio only holds weak refs to tasks).
+_dispatch_tasks: set[asyncio.Task] = set()
 
 
 def _create_stt():
@@ -144,24 +86,25 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             voice=os.getenv("GRADIUM_VOICE_ID", "Eu9iL_CYe8N-Gkx_"),
         ),
     )
-    llm = create_llm_service(system_prompt=VOICE_PROMPT)
-    llm.register_direct_function(handle_request, cancel_on_interruption=False, timeout_secs=30)
 
-    context = LLMContext(tools=ToolsSchema(standard_tools=[handle_request]))
+    # No router LLM. The main pipeline only does speech I/O. The empty context +
+    # aggregator pair gives us VAD-based turn detection (the
+    # ``on_user_turn_stopped`` event below) and a place for the action worker's
+    # spoken replies to append to (``BusTTSSpeakMessage(append_to_context=True)``).
+    context = LLMContext()
     aggregators = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
             vad_analyzer=SileroVADAnalyzer(),
-            user_turn_strategies=FilterIncompleteUserTurnStrategies(),
         ),
     )
+    user_agg = aggregators.user()
 
     pipeline = Pipeline(
         [
             transport.input(),
             stt,
-            aggregators.user(),
-            llm,
+            user_agg,
             tts,
             transport.output(),
             aggregators.assistant(),
@@ -182,21 +125,42 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
     )
 
+    action = PRMActionWorker()
+
+    async def _respond(query: str) -> None:
+        """Hand one finished user turn to the action worker and let it speak.
+
+        The action worker's @tool sends its UICommand and calls
+        ``respond_to_job(tts_speak=True)``; Pipecat routes that speech to this
+        (the requesting) worker's TTS. We just await the job round-trip.
+        """
+        logger.info(f"respond({query!r})")
+        try:
+            async with worker.job(
+                UI_NAME, name="respond", payload={"query": query}, timeout=30
+            ):
+                pass
+        except JobError as e:
+            logger.warning(f"ui job failed: {e}")
+            await worker.queue_frame(TTSSpeakFrame("Something went wrong on my side."))
+
+    @user_agg.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped(aggregator, strategy, message):
+        query = (getattr(message, "content", "") or "").strip()
+        if not query:
+            return
+        # Fire-and-forget: the ``respond`` job is single-flight
+        # (``@job(sequential=True)``), so overlapping turns queue on the worker
+        # rather than racing.
+        task = asyncio.create_task(_respond(query))
+        _dispatch_tasks.add(task)
+        task.add_done_callback(_dispatch_tasks.discard)
+
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
         logger.info("Client connected")
-        context.add_message(
-            {
-                "role": "developer",
-                "content": (
-                    "Greet the user. Welcome them to their personal "
-                    "relationship manager and mention they can add people, "
-                    "notes, dates, and reminders, or ask what they know about "
-                    "someone. One short sentence."
-                ),
-            }
-        )
-        await worker.queue_frame(LLMRunFrame())
+        # Fixed greeting via TTS (there's no LLM to run).
+        await worker.queue_frame(TTSSpeakFrame("Hey!"))
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
@@ -204,10 +168,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         await runner.cancel()
 
     # Bring up the action worker alongside the main worker.
-    await runner.add_workers(
-        PRMActionWorker(),
-        worker,
-    )
+    await runner.add_workers(action, worker)
 
     await runner.run()
 

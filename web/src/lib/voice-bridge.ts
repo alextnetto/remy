@@ -58,8 +58,11 @@ function channel<T>() {
 
 const refresh = channel<void>();
 const highlight = channel<string>();
+const search = channel<string>();
 const screen = channel<ScreenReport>();
 let current: ScreenReport | null = null;
+// One-shot search applied after Home mounts (set before a navigate-to-Home).
+let pendingSearch: string | null = null;
 
 export const voiceBridge = {
   /** Subscribe to "refetch your data" (agent mutated something). */
@@ -71,6 +74,21 @@ export const voiceBridge = {
   onHighlight: (fn: Listener<string>) => highlight.on(fn),
   /** Voice client: call on a `highlight` UICommand. */
   emitHighlight: (targetId: string) => highlight.emit(targetId),
+
+  /** Subscribe to search requests (Home sets its search box to the query). */
+  onSearch: (fn: Listener<string>) => search.on(fn),
+  /** Voice client: call on a `search` UICommand when already on Home. */
+  emitSearch: (query: string) => search.emit(query),
+  /** Voice client: stash a search to apply once Home mounts (before navigating). */
+  setPendingSearch: (query: string) => {
+    pendingSearch = query;
+  },
+  /** Home: read & clear the pending search (returns null if none). */
+  consumePendingSearch: (): string | null => {
+    const q = pendingSearch;
+    pendingSearch = null;
+    return q;
+  },
 
   /** Screens: publish the current screen for voice grounding. */
   reportScreen: (s: ScreenReport) => {
