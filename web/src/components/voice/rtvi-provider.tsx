@@ -131,21 +131,12 @@ export function RtviProvider({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<PipecatClient | null>(null);
 
   useEffect(() => {
-    const transport = new SmallWebRTCTransport({
-      webrtcRequestParams: {
-        endpoint: BOT_START_URL,
-        // Match the working music-player connect params. `enableDefaultIceServers`
-        // makes the runner's POST /start return an `iceConfig`, which the SDK
-        // needs to switch to per-session signaling (`/sessions/<id>/api/offer`,
-        // which allows PATCH). Without it, trickle-ICE PATCH falls back to the
-        // raw /start endpoint and 405s.
-        requestData: {
-          createDailyRoom: false,
-          enableDefaultIceServers: true,
-          transport: "webrtc",
-        },
-      },
-    });
+    // Bare transport. The connection params are passed to client.connect()
+    // (the "start-bot" flow), exactly like the working music-player. Passing
+    // webrtcRequestParams to the constructor instead puts the SDK in
+    // direct-offer mode, where it POSTs the offer to /start and PATCHes /start
+    // for trickle ICE (405) instead of using /sessions/<id>/api/offer.
+    const transport = new SmallWebRTCTransport();
     const c = new PipecatClient({
       transport,
       enableMic: true,
@@ -196,7 +187,16 @@ function VoiceState({ children }: { children: ReactNode }) {
   const connect = useCallback(async () => {
     if (!client) return;
     try {
-      await client.connect();
+      // Start-bot flow (POST /start -> sessionId -> /sessions/<id>/api/offer),
+      // matching the working music-player's connect params.
+      await client.connect({
+        endpoint: BOT_START_URL,
+        requestData: {
+          createDailyRoom: false,
+          enableDefaultIceServers: true,
+          transport: "webrtc",
+        },
+      });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to connect to voice agent";
