@@ -134,7 +134,16 @@ export function RtviProvider({ children }: { children: ReactNode }) {
     const transport = new SmallWebRTCTransport({
       webrtcRequestParams: {
         endpoint: BOT_START_URL,
-        requestData: { transport: "webrtc" },
+        // Match the working music-player connect params. `enableDefaultIceServers`
+        // makes the runner's POST /start return an `iceConfig`, which the SDK
+        // needs to switch to per-session signaling (`/sessions/<id>/api/offer`,
+        // which allows PATCH). Without it, trickle-ICE PATCH falls back to the
+        // raw /start endpoint and 405s.
+        requestData: {
+          createDailyRoom: false,
+          enableDefaultIceServers: true,
+          transport: "webrtc",
+        },
       },
     });
     const c = new PipecatClient({
