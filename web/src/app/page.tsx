@@ -1,65 +1,217 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import * as React from "react";
+import Link from "next/link";
+import { Bell, Search, Users, X } from "lucide-react";
+
+import { AppHeader } from "@/components/shared/app-header";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AddPersonDialog } from "@/components/people/add-person-dialog";
+import { PeopleListSkeleton } from "@/components/people/people-list-skeleton";
+import { PersonRow } from "@/components/people/person-row";
+import { TodayStrip } from "@/components/today/today-strip";
+import {
+  useHighlightTarget,
+  useReportScreen,
+  useVoiceRefresh,
+} from "@/components/shared/use-voice-screen";
+import { api, ApiError } from "@/lib/api-contract";
+import type {
+  PersonSummary,
+  ReminderWithPerson,
+  ImportantDateWithPerson,
+} from "@/lib/types";
+import type { ScreenReport } from "@/lib/voice-bridge";
+
+export default function HomePage() {
+  const [query, setQuery] = React.useState("");
+  const [debounced, setDebounced] = React.useState("");
+
+  const [people, setPeople] = React.useState<PersonSummary[] | null>(null);
+  const [today, setToday] = React.useState<{
+    reminders: ReminderWithPerson[];
+    importantDates: ImportantDateWithPerson[];
+  } | null>(null);
+  const [error, setError] = React.useState(false);
+
+  useHighlightTarget();
+
+  // Debounce the search query.
+  React.useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(query.trim()), 220);
+    return () => window.clearTimeout(t);
+  }, [query]);
+
+  // --- People list (re-fetches on query change) ---------------------------
+  const fetchPeople = React.useCallback(
+    async (q: string, signal?: AbortSignal) => {
+      try {
+        setError(false);
+        const list = await api.people.list(q || undefined, signal);
+        setPeople(list);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof ApiError || err instanceof Error) setError(true);
+      }
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    const ctrl = new AbortController();
+    void (async () => {
+      await fetchPeople(debounced, ctrl.signal);
+    })();
+    return () => ctrl.abort();
+  }, [debounced, fetchPeople]);
+
+  // --- Today strip --------------------------------------------------------
+  const fetchToday = React.useCallback(async () => {
+    try {
+      const t = await api.today();
+      setToday(t);
+    } catch {
+      // The Today strip is non-critical; fail silent (hides on empty/error).
+      setToday({ reminders: [], importantDates: [] });
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void (async () => {
+      await fetchToday();
+    })();
+  }, [fetchToday]);
+
+  // Voice agent mutated something → re-fetch everything currently shown.
+  const refetchAll = React.useCallback(() => {
+    fetchPeople(debounced);
+    fetchToday();
+  }, [fetchPeople, fetchToday, debounced]);
+  useVoiceRefresh(refetchAll);
+
+  // --- Report screen to the voice bridge ----------------------------------
+  const report = React.useMemo<ScreenReport>(() => {
+    const visible: ScreenReport["visible"] = [];
+    if (today) {
+      for (const r of today.reminders) {
+        visible.push({ kind: "reminder", id: r.id, label: `${r.text} (${r.person.name})` });
+      }
+      for (const d of today.importantDates) {
+        visible.push({
+          kind: "importantDate",
+          id: d.id,
+          label: `${d.label} — ${d.person.name}`,
+        });
+      }
+    }
+    for (const p of people ?? []) {
+      visible.push({ kind: "person", id: p.id, label: p.name });
+    }
+    return { route: "/", title: "People", visible };
+  }, [people, today]);
+  useReportScreen(report);
+
+  const isEmpty = people !== null && people.length === 0;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <>
+      <AppHeader
+        title="People"
+        leading={
+          <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <Users className="size-5" />
+          </div>
+        }
+        action={
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Reminders"
+              nativeButton={false}
+              render={<Link href="/reminders" />}
+            >
+              <Bell className="size-5" />
+            </Button>
+            <AddPersonDialog />
+          </div>
+        }
+      />
+
+      <main className="flex flex-1 flex-col gap-4 pt-3 pb-24">
+        {/* Today strip */}
+        <TodayStrip
+          reminders={today?.reminders ?? []}
+          importantDates={today?.importantDates ?? []}
+          loading={today === null}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        {/* Search */}
+        <div className="px-4">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search people, interests, orgs…"
+              className="h-10 pr-9 pl-8.5"
+              aria-label="Search people"
+              type="search"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {query ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setQuery("")}
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {/* People list */}
+        <div className="flex-1 px-2">
+          {people === null ? (
+            <PeopleListSkeleton />
+          ) : error ? (
+            <EmptyState
+              icon={Users}
+              title="Couldn't load people"
+              description="Something went wrong reaching the server."
+              action={
+                <Button variant="outline" size="sm" onClick={() => fetchPeople(debounced)}>
+                  Try again
+                </Button>
+              }
+            />
+          ) : isEmpty ? (
+            debounced ? (
+              <EmptyState
+                icon={Search}
+                title={`No matches for “${debounced}”`}
+                description="Try a different name, interest, or organization."
+              />
+            ) : (
+              <EmptyState
+                icon={Users}
+                title="No people yet"
+                description="Add the people who matter, or just say it out loud with the voice agent."
+                action={<AddPersonDialog />}
+              />
+            )
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {people.map((p) => (
+                <PersonRow key={p.id} person={p} />
+              ))}
+            </div>
+          )}
         </div>
       </main>
-    </div>
+    </>
   );
 }

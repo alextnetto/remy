@@ -1,24 +1,31 @@
 // POST /api/people/:id/contacts → ContactMethod
-// STUB: typed echo; downstream agent wires Prisma.
 import { NextResponse } from "next/server";
 import type { CreateContactBody } from "@/lib/api-contract";
-import type { ContactMethod } from "@/lib/types";
+import { db } from "@/lib/db";
+import { serializeContactMethod } from "@/lib/serialize";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<ContactMethod>> {
+): Promise<NextResponse> {
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as Partial<CreateContactBody>;
-  // TODO(downstream): persist and return the created contact method.
-  const contact: ContactMethod = {
-    id: "00000000-0000-0000-0000-000000000000",
-    personId: id,
-    kind: body.kind ?? "other",
-    value: body.value ?? "",
-    label: body.label ?? null,
-  };
-  return NextResponse.json(contact, { status: 201 });
+  const body = (await request.json().catch(() => null)) as Partial<CreateContactBody> | null;
+  const kind = body?.kind;
+  const value = body?.value?.trim();
+  if (!kind || !value) {
+    return NextResponse.json({ error: "kind and value are required" }, { status: 400 });
+  }
+
+  const person = await db.person.findUnique({ where: { id } });
+  if (!person) {
+    return NextResponse.json({ error: "person not found" }, { status: 404 });
+  }
+
+  const contact = await db.contactMethod.create({
+    data: { personId: id, kind, value, label: body?.label ?? null },
+  });
+
+  return NextResponse.json(serializeContactMethod(contact), { status: 201 });
 }

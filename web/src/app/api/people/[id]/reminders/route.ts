@@ -1,25 +1,35 @@
 // POST /api/people/:id/reminders → Reminder
-// STUB: typed echo; downstream agent wires Prisma.
 import { NextResponse } from "next/server";
 import type { CreateReminderBody } from "@/lib/api-contract";
-import type { Reminder } from "@/lib/types";
+import { db } from "@/lib/db";
+import { serializeReminder } from "@/lib/serialize";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<Reminder>> {
+): Promise<NextResponse> {
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as Partial<CreateReminderBody>;
-  // TODO(downstream): persist and return the created reminder.
-  const reminder: Reminder = {
-    id: "00000000-0000-0000-0000-000000000000",
-    personId: id,
-    text: body.text ?? "",
-    dueAt: body.dueAt ?? new Date().toISOString(),
-    done: false,
-    createdAt: new Date().toISOString(),
-  };
-  return NextResponse.json(reminder, { status: 201 });
+  const body = (await request.json().catch(() => null)) as Partial<CreateReminderBody> | null;
+  const text = body?.text?.trim();
+  const dueAtRaw = body?.dueAt;
+  if (!text || !dueAtRaw) {
+    return NextResponse.json({ error: "text and dueAt are required" }, { status: 400 });
+  }
+  const dueAt = new Date(dueAtRaw);
+  if (Number.isNaN(dueAt.getTime())) {
+    return NextResponse.json({ error: "invalid dueAt" }, { status: 400 });
+  }
+
+  const person = await db.person.findUnique({ where: { id } });
+  if (!person) {
+    return NextResponse.json({ error: "person not found" }, { status: 404 });
+  }
+
+  const reminder = await db.reminder.create({
+    data: { personId: id, text, dueAt, done: false },
+  });
+
+  return NextResponse.json(serializeReminder(reminder), { status: 201 });
 }

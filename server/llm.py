@@ -42,11 +42,14 @@ def create_llm_service(*, system_prompt: str) -> LLMService:
         from pipecat.services.openai.base_llm import OpenAILLMSettings
         from pipecat.services.openai.llm import OpenAILLMService
 
+        # ``OpenAILLMSettings.model`` treats ``None`` as a real (given) value,
+        # so an unset OPENAI_MODEL would clobber the service's "gpt-4.1"
+        # default. Default it here (spec §7) so the dev fallback just works.
         return OpenAILLMService(
             api_key=os.environ["OPENAI_API_KEY"],
             settings=OpenAILLMSettings(
                 system_instruction=system_prompt,
-                model=os.getenv("OPENAI_MODEL"),
+                model=os.getenv("OPENAI_MODEL") or "gpt-4.1",
             ),
         )
 

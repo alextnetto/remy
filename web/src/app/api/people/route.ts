@@ -1,34 +1,68 @@
 // People collection routes.
 //   GET  /api/people?query=  → PersonSummary[]
 //   POST /api/people         → Person
-//
-// STUB: returns typed placeholder data so the app builds DB-free.
-// A downstream agent replaces the bodies with real Prisma queries.
 import { NextResponse } from "next/server";
 import type { CreatePersonBody } from "@/lib/api-contract";
-import type { Person, PersonSummary } from "@/lib/types";
+import type { PersonSummary } from "@/lib/types";
+import { db } from "@/lib/db";
+import { serializePerson, serializePersonSummary, toISODateTime } from "@/lib/serialize";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<NextResponse<PersonSummary[]>> {
-  // TODO(downstream): filter people by name / interest / org from `query`.
-  return NextResponse.json([]);
+/**
+ * GET /api/people?query=
+ * Search people by name / interests / relationshipToMe (case-insensitive
+ * substring). Each result carries `nextReminderAt` = the soonest OPEN
+ * reminder's dueAt. Results sorted by name.
+ */
+export async function GET(request: Request): Promise<NextResponse> {
+  const url = new URL(request.url);
+  const query = (url.searchParams.get("query") ?? "").trim().toLowerCase();
+
+  const people = await db.person.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      reminders: {
+        where: { done: false },
+        orderBy: { dueAt: "asc" },
+        take: 1,
+      },
+    },
+  });
+
+  const filtered = query
+    ? people.filter((p) => {
+        if (p.name.toLowerCase().includes(query)) return true;
+        if ((p.relationshipToMe ?? "").toLowerCase().includes(query)) return true;
+        return p.interests.some((i) => i.toLowerCase().includes(query));
+      })
+    : people;
+
+  const summaries: PersonSummary[] = filtered.map((p) => {
+    const next = p.reminders[0];
+    return serializePersonSummary(p, next ? toISODateTime(next.dueAt) : null);
+  });
+
+  return NextResponse.json(summaries);
 }
 
-export async function POST(request: Request): Promise<NextResponse<Person>> {
-  const body = (await request.json().catch(() => ({}))) as Partial<CreatePersonBody>;
-  const now = new Date().toISOString();
-  // TODO(downstream): persist and return the created person.
-  const person: Person = {
-    id: "00000000-0000-0000-0000-000000000000",
-    name: body.name ?? "",
-    avatarUrl: null,
-    relationshipToMe: body.relationshipToMe ?? null,
-    story: body.story ?? null,
-    base: body.base ?? null,
-    interests: body.interests ?? [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  return NextResponse.json(person, { status: 201 });
+/** POST /api/people → Person */
+export async function POST(request: Request): Promise<NextResponse> {
+  const body = (await request.json().catch(() => null)) as Partial<CreatePersonBody> | null;
+  const name = body?.name?.trim();
+  if (!name) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  }
+
+  const person = await db.person.create({
+    data: {
+      name,
+      relationshipToMe: body?.relationshipToMe ?? null,
+      base: body?.base ?? null,
+      story: body?.story ?? null,
+      interests: body?.interests ?? [],
+    },
+  });
+
+  return NextResponse.json(serializePerson(person), { status: 201 });
 }

@@ -1,35 +1,51 @@
 // Notes for a person.
-//   GET  /api/people/:id/notes → Note[]
+//   GET  /api/people/:id/notes → Note[]  (pinned first, then newest)
 //   POST /api/people/:id/notes → Note
-// STUB: typed placeholder; downstream agent wires Prisma.
 import { NextResponse } from "next/server";
 import type { CreateNoteBody } from "@/lib/api-contract";
-import type { Note } from "@/lib/types";
+import { db } from "@/lib/db";
+import { serializeNote } from "@/lib/serialize";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<Note[]>> {
-  await params;
-  // TODO(downstream): list this person's notes (newest first; pinned on top).
-  return NextResponse.json([]);
+): Promise<NextResponse> {
+  const { id } = await params;
+
+  const person = await db.person.findUnique({ where: { id } });
+  if (!person) {
+    return NextResponse.json({ error: "person not found" }, { status: 404 });
+  }
+
+  const notes = await db.note.findMany({
+    where: { personId: id },
+    orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
+  });
+
+  return NextResponse.json(notes.map(serializeNote));
 }
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<Note>> {
+): Promise<NextResponse> {
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as Partial<CreateNoteBody>;
-  // TODO(downstream): persist and return the created note.
-  const note: Note = {
-    id: "00000000-0000-0000-0000-000000000000",
-    personId: id,
-    body: body.body ?? "",
-    pinned: body.pinned ?? false,
-    createdAt: new Date().toISOString(),
-  };
-  return NextResponse.json(note, { status: 201 });
+  const body = (await request.json().catch(() => null)) as Partial<CreateNoteBody> | null;
+  const noteBody = body?.body?.trim();
+  if (!noteBody) {
+    return NextResponse.json({ error: "body is required" }, { status: 400 });
+  }
+
+  const person = await db.person.findUnique({ where: { id } });
+  if (!person) {
+    return NextResponse.json({ error: "person not found" }, { status: 404 });
+  }
+
+  const note = await db.note.create({
+    data: { personId: id, body: noteBody, pinned: body?.pinned ?? false },
+  });
+
+  return NextResponse.json(serializeNote(note), { status: 201 });
 }

@@ -1,0 +1,60 @@
+"use client";
+
+/**
+ * Hooks that wire a screen into the voice ⇄ UI bridge.
+ *
+ *  - `useReportScreen(report)`   — publishes the current screen so the voice
+ *    worker can ground deixis ("open the first one") and answer "what's on
+ *    screen". Re-reports whenever the report's identity changes.
+ *  - `useVoiceRefresh(refetch)`  — re-runs the screen's fetch when the agent
+ *    mutates data.
+ *  - `useHighlightTarget()`      — installs the default highlight consumer:
+ *    scrolls `[data-highlight-id="<id>"]` into view and briefly rings it.
+ *
+ * All three are no-ops when no voice client is connected (the bridge channels
+ * simply have no other subscribers), so screens stay fully standalone.
+ */
+import { useEffect } from "react";
+
+import { voiceBridge, type ScreenReport } from "@/lib/voice-bridge";
+
+/** Publish the current screen to the voice bridge whenever it changes. */
+export function useReportScreen(report: ScreenReport | null): void {
+  // Serialize so we only re-emit on a real content change, not new array refs.
+  const key = report
+    ? `${report.route}|${report.title}|${report.visible
+        .map((v) => `${v.kind}:${v.id ?? ""}:${v.label}`)
+        .join("|")}`
+    : null;
+
+  useEffect(() => {
+    if (!report) return;
+    voiceBridge.reportScreen(report);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+}
+
+/** Subscribe the screen's refetch to agent-driven refresh commands. */
+export function useVoiceRefresh(refetch: () => void): void {
+  useEffect(() => voiceBridge.onRefresh(refetch), [refetch]);
+}
+
+/**
+ * Default highlight consumer. Mount once near the root of a screen. When the
+ * agent emits a highlight for an id, scroll the matching element into view and
+ * pulse a ring on it.
+ */
+export function useHighlightTarget(): void {
+  useEffect(() => {
+    return voiceBridge.onHighlight((id) => {
+      if (typeof document === "undefined") return;
+      const el = document.querySelector<HTMLElement>(
+        `[data-highlight-id="${CSS.escape(id)}"]`,
+      );
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("voice-highlight");
+      window.setTimeout(() => el.classList.remove("voice-highlight"), 2200);
+    });
+  }, []);
+}

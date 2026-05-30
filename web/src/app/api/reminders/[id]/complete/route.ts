@@ -1,24 +1,19 @@
-// POST /api/reminders/:id/complete → Reminder
-// STUB: typed echo; downstream agent wires Prisma.
+// POST /api/reminders/:id/complete → Reminder (marks done=true)
 import { NextResponse } from "next/server";
-import type { Reminder } from "@/lib/types";
+import { db } from "@/lib/db";
+import { serializeReminder } from "@/lib/serialize";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<Reminder>> {
+): Promise<NextResponse> {
   const { id } = await params;
-  const now = new Date().toISOString();
-  // TODO(downstream): mark the reminder done=true and return it.
-  const reminder: Reminder = {
-    id,
-    personId: "00000000-0000-0000-0000-000000000000",
-    text: "",
-    dueAt: now,
-    done: true,
-    createdAt: now,
-  };
-  return NextResponse.json(reminder);
+  const existing = await db.reminder.findUnique({ where: { id } });
+  if (!existing) {
+    return NextResponse.json({ error: "reminder not found" }, { status: 404 });
+  }
+  const reminder = await db.reminder.update({ where: { id }, data: { done: true } });
+  return NextResponse.json(serializeReminder(reminder));
 }

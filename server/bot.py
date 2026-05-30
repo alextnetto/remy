@@ -148,11 +148,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
 
     stt = _create_stt()
+    # Only override the voice when GRADIUM_VOICE_ID is set: passing voice=None
+    # would clobber GradiumTTSService's built-in default voice (its Settings
+    # treat None as a given value), so leave it unset to fall back to default.
+    voice_id = os.getenv("GRADIUM_VOICE_ID")
+    tts_settings = (
+        GradiumTTSService.Settings(voice=voice_id) if voice_id else GradiumTTSService.Settings()
+    )
     tts = GradiumTTSService(
         api_key=os.environ["GRADIUM_API_KEY"],
-        settings=GradiumTTSService.Settings(
-            voice=os.getenv("GRADIUM_VOICE_ID"),
-        ),
+        settings=tts_settings,
     )
     llm = create_llm_service(system_prompt=VOICE_PROMPT)
     llm.register_direct_function(handle_request, cancel_on_interruption=False, timeout_secs=30)

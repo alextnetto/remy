@@ -1,16 +1,19 @@
 // DELETE /api/person-organizations/:id → { ok: true }
-// (unlink a person from an organization; id is the join-row id)
-// STUB: downstream agent wires Prisma.
+// Unlink a person from an organization (id is the join-row id).
 import { NextResponse } from "next/server";
-import type { OkResponse } from "@/lib/api-contract";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<OkResponse>> {
-  await params;
-  // TODO(downstream): delete the person_organizations join row.
+): Promise<NextResponse> {
+  const { id } = await params;
+  const existing = await db.personOrganization.findUnique({ where: { id } });
+  if (!existing) {
+    return NextResponse.json({ error: "link not found" }, { status: 404 });
+  }
+  await db.personOrganization.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

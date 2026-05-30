@@ -1,15 +1,18 @@
 // DELETE /api/notes/:id → { ok: true }
-// STUB: downstream agent wires Prisma.
 import { NextResponse } from "next/server";
-import type { OkResponse } from "@/lib/api-contract";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<OkResponse>> {
-  await params;
-  // TODO(downstream): delete the note.
+): Promise<NextResponse> {
+  const { id } = await params;
+  const existing = await db.note.findUnique({ where: { id } });
+  if (!existing) {
+    return NextResponse.json({ error: "note not found" }, { status: 404 });
+  }
+  await db.note.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

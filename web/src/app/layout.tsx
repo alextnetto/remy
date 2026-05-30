@@ -38,10 +38,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full">
+      <body className="min-h-full bg-muted/40">
         <RtviProvider>
           {/* Mobile-first centered app frame. The voice dock floats at the bottom. */}
-          <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-background">
+          <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-background shadow-sm ring-1 ring-border/50">
             {children}
           </div>
           <VoiceDock />
