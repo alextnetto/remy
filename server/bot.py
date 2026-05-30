@@ -46,12 +46,14 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
+    UserTurnStrategies,
 )
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.gradium.tts import GradiumTTSService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
+from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
 
 from action_worker import PRMActionWorker
 from prm.services.nvidia_stt import NVidiaWebSocketSTTService
@@ -96,6 +98,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         context,
         user_params=LLMUserAggregatorParams(
             vad_analyzer=SileroVADAnalyzer(),
+            user_turn_strategies=FilterIncompleteUserTurnStrategies(),
         ),
     )
     user_agg = aggregators.user()

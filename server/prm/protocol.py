@@ -25,7 +25,7 @@ there too (and vice-versa).
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 # ===========================================================================
 # UICommand — server -> client
@@ -35,7 +35,7 @@ from typing import Any, Literal, TypedDict
 ToastLevel = Literal["info", "success", "error"]
 
 #: Literal union of every UICommand ``type``.
-UICommandType = Literal["navigate", "refresh", "highlight", "toast", "search"]
+UICommandType = Literal["navigate", "refresh", "highlight", "toast", "search", "addPerson"]
 
 
 class NavigateCommand(TypedDict):
@@ -73,8 +73,33 @@ class SearchCommand(TypedDict):
     query: str
 
 
+class AddPersonFields(TypedDict, total=False):
+    """Editable fields of the Add Person dialog (all optional; values merge)."""
+
+    name: str
+    relationship: str
+    base: str
+    story: str
+
+
+class AddPersonCommand(TypedDict, total=False):
+    """Drive the Add Person dialog: open/fill (``fields``), ``submit``, or ``cancel``."""
+
+    type: Literal["addPerson"]  # required
+    fields: AddPersonFields
+    submit: bool
+    cancel: bool
+
+
 #: A command the server sends to drive the client UI. Discriminated on ``type``.
-UICommand = NavigateCommand | RefreshCommand | HighlightCommand | ToastCommand | SearchCommand
+UICommand = (
+    NavigateCommand
+    | RefreshCommand
+    | HighlightCommand
+    | ToastCommand
+    | SearchCommand
+    | AddPersonCommand
+)
 
 
 # ===========================================================================
@@ -101,6 +126,14 @@ class VisibleItem(TypedDict, total=False):
     id: str  # optional
 
 
+class DialogState(TypedDict):
+    """An open dialog/overlay reported with the screen (the cross-turn memory
+    of a guided capture; the worker is otherwise stateless per turn)."""
+
+    kind: Literal["addPerson"]
+    fields: AddPersonFields  # the current draft (each value "" when empty)
+
+
 class ScreenEvent(TypedDict):
     """The client's current screen, reported on every navigation / view load.
 
@@ -112,6 +145,7 @@ class ScreenEvent(TypedDict):
     route: str  # current route, e.g. "/people/<id>"
     title: str  # human-readable screen title, e.g. "Sarah Chen"
     visible: list[VisibleItem]  # addressable items on screen, in display order
+    dialog: NotRequired[DialogState]  # an open overlay (e.g. Add Person), if any
 
 
 class HelloEvent(TypedDict):

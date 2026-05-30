@@ -5,3 +5,10 @@ agent_profile = "agent-1x"
 [scaling]
 	# Keep one agent warm so the live demo connects instantly (spec §9).
 	min_agents = 1
+
+[krisp_viva]
+	# Provisions the Krisp VIVA noise-cancellation model so the
+	# KrispVivaFilter() bot.py wires onto audio_in (when ENV != "local") has a
+	# model to run. "pro" = WebRTC (up to 32 kHz), which matches our Daily/WebRTC
+	# browser transport. Use "tel" instead only if routing through telephony.
+	audio_filter = "pro"

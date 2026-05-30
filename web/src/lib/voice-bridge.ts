@@ -24,6 +24,8 @@
  * Shapes mirror the `screen` UIEvent in `rtvi-protocol.ts`.
  */
 
+import type { AddPersonFields, DialogState } from "@/lib/rtvi-protocol";
+
 export interface VisibleItem {
   /** Coarse type, e.g. "person", "reminder", "note", "tab". */
   kind: string;
@@ -37,6 +39,15 @@ export interface ScreenReport {
   route: string;
   title: string;
   visible: VisibleItem[];
+  /** An open dialog/overlay (e.g. Add Person), merged in by the bridge. */
+  dialog?: DialogState;
+}
+
+/** What the voice client forwards to the Add Person dialog (open/fill/submit/cancel). */
+export interface AddPersonControl {
+  fields?: AddPersonFields;
+  submit?: boolean;
+  cancel?: boolean;
 }
 
 type Listener<T> = (arg: T) => void;
@@ -59,10 +70,26 @@ function channel<T>() {
 const refresh = channel<void>();
 const highlight = channel<string>();
 const search = channel<string>();
+const addPerson = channel<AddPersonControl>();
 const screen = channel<ScreenReport>();
 let current: ScreenReport | null = null;
 // One-shot search applied after Home mounts (set before a navigate-to-Home).
 let pendingSearch: string | null = null;
+// The Add Person dialog's live draft, merged into every screen report so the
+// (stateless) worker can resolve guided follow-ups against the open form.
+let currentDialog: DialogState | null = null;
+
+/** Current screen + any open dialog, as the single report the worker sees. */
+function combinedScreen(): ScreenReport | null {
+  if (!current && !currentDialog) return null;
+  const base = current ?? { route: "", title: "", visible: [] };
+  return currentDialog ? { ...base, dialog: currentDialog } : base;
+}
+
+function emitScreen(): void {
+  const c = combinedScreen();
+  if (c) screen.emit(c);
+}
 
 export const voiceBridge = {
   /** Subscribe to "refetch your data" (agent mutated something). */
@@ -90,13 +117,23 @@ export const voiceBridge = {
     return q;
   },
 
+  /** Subscribe to Add Person dialog control (the dialog opens/fills/submits). */
+  onAddPerson: (fn: Listener<AddPersonControl>) => addPerson.on(fn),
+  /** Voice client: call on an `addPerson` UICommand. */
+  emitAddPerson: (control: AddPersonControl) => addPerson.emit(control),
+  /** Add Person dialog: publish its live draft while open (null when closed). */
+  reportDialog: (dialog: DialogState | null) => {
+    currentDialog = dialog;
+    emitScreen();
+  },
+
   /** Screens: publish the current screen for voice grounding. */
   reportScreen: (s: ScreenReport) => {
     current = s;
-    screen.emit(s);
+    emitScreen();
   },
   /** Voice client: react to screen changes (forward as a `screen` UIEvent). */
   onScreen: (fn: Listener<ScreenReport>) => screen.on(fn),
-  /** Voice client: read the latest reported screen (e.g. on connect). */
-  getCurrentScreen: (): ScreenReport | null => current,
+  /** Voice client: read the latest reported screen + open dialog (e.g. on connect). */
+  getCurrentScreen: (): ScreenReport | null => combinedScreen(),
 };

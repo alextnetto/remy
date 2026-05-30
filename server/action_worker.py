@@ -64,15 +64,27 @@ lives in San Francisco" -> query "who lives in San Francisco"). Empty `query` \
 clears the search and shows everyone.
 - Showing reminders / the Today view -> open_reminders.
 - "go home" / "go back" -> go_home / go_back.
-- Creating or changing data (a person, a note, a contact, a date, an org \
-link, a moment, a reminder) -> the matching add_*/update_*/set_*/complete_* \
-tool. Notes are the hero capture path: "add a note to X ..." -> add_note.
+- Adding a NEW person -> the guided dialog flow (see "Adding a person" below), \
+never a silent write.
+- Creating or changing OTHER data (a note, a contact, a date, an org link, a \
+moment, a reminder) -> the matching add_*/update_*/set_*/complete_* tool. Notes \
+are the hero capture path: "add a note to X ..." -> add_note.
 - A question ABOUT a person ("what do I know about Sarah", "when is her \
 birthday", "where does Tom work") -> answer_about_person. This is the hero \
 recall path; it reads the person's full record and speaks a concise answer.
 - A question about what is currently displayed ("what's on screen", "who's \
 the first person", "how many reminders are due") -> answer_about_screen, \
 composing the answer from the <ui_state> only.
+
+## Adding a person (guided, in the UI)
+"Add a person", "create a contact", "I met someone…" -> add_person. This OPENS \
+and FILLS the on-screen Add Person dialog; it does NOT save. Pass only the \
+fields the user actually said (name, relationship, base, story). If the \
+<ui_state> shows the Add Person dialog already OPEN, keep using add_person to \
+fill or correct fields as the user gives them — they merge into the open form. \
+When the user confirms ("add them", "save", "that's it") -> save_person. If \
+they back out ("never mind", "cancel that") -> cancel_add_person. Don't \
+navigate or refresh during this flow; the dialog does that on save.
 
 ## Rules
 1. Exactly one tool per turn. Never answer with plain text.
@@ -191,6 +203,19 @@ class PRMActionWorker(UIWorker):
                 lines.append(f"  {i}. {kind}: {label}{suffix}")
         else:
             lines.append("No addressable items on screen.")
+
+        dialog = payload.get("dialog")
+        if isinstance(dialog, dict) and dialog.get("kind") == "addPerson":
+            fields = dialog.get("fields") or {}
+            lines.append("")
+            lines.append("The Add Person dialog is OPEN (the user is adding someone). Current draft:")
+            for key in ("name", "relationship", "base", "story"):
+                val = (fields.get(key) or "").strip()
+                lines.append(f"  - {key}: {val or '(empty)'}")
+            lines.append(
+                "Fill or correct fields with add_person; save with save_person when the user "
+                "confirms; cancel with cancel_add_person. (See the Adding a person rules.)"
+            )
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
@@ -424,33 +449,82 @@ class PRMActionWorker(UIWorker):
     async def add_person(
         self,
         params: FunctionCallParams,
-        name: str,
+        name: str | None = None,
         relationship: str | None = None,
         base: str | None = None,
+        story: str | None = None,
     ):
-        """Create a new person and open their detail screen.
+        """Open the Add Person dialog and fill in what the user has said so far.
+
+        This DRIVES THE UI; it does NOT save. Call it to open the capture, and
+        again to add or correct fields as the user gives them (fields MERGE into
+        the open form). Save only when the user confirms, via ``save_person``.
+        If the ``<ui_state>`` already shows the Add Person dialog open, use this
+        to fill more fields. Pass ONLY what the user actually said.
 
         Args:
             name: The person's name.
-            relationship: Freeform relationship to me ("friend", "mentor").
-            base: Home base / location.
+            relationship: Relationship to me ("friend", "mentor", "colleague").
+            base: Home base / location ("San Francisco").
+            story: One line about them / how you met (optional).
         """
-        logger.info(f"{self}: add_person({name!r}, rel={relationship!r}, base={base!r})")
-        if not (name or "").strip():
-            await self._fail(params, "What's their name?")
-            return
-        try:
-            person = await self.api.create_person(
-                name=name.strip(), relationship_to_me=relationship, base=base
+        fields = {
+            key: value.strip()
+            for key, value in (
+                ("name", name),
+                ("relationship", relationship),
+                ("base", base),
+                ("story", story),
             )
-        except PRMApiError as exc:
-            await self._fail(params, f"I couldn't add {name}.")
-            logger.warning(f"{self}: create_person failed: {exc}")
+            if isinstance(value, str) and value.strip()
+        }
+        logger.info(f"{self}: add_person(open/fill) fields={fields}")
+        await self.send_command("addPerson", {"fields": fields})
+
+        # Guide the user: merge what we just set over the live draft (from the
+        # screen) and ask for the most useful missing field.
+        draft = (self._screen.get("dialog") or {}).get("fields") or {}
+        have = {
+            key: (fields.get(key) or draft.get(key) or "").strip()
+            for key in ("name", "relationship", "base")
+        }
+        if not have["name"]:
+            spoken = "Sure — what's their name?"
+        else:
+            ask = []
+            if not have["relationship"]:
+                ask.append("how you know them")
+            if not have["base"]:
+                ask.append("where they're based")
+            if ask:
+                spoken = f"Okay, adding {have['name']}. Can you tell me {' and '.join(ask)}?"
+            else:
+                spoken = f"Got it — {have['name']}. Anything else, or should I add them?"
+        await self.respond_to_job(spoken, tts_speak=True)
+        await params.result_callback(None)
+
+    @tool
+    async def save_person(self, params: FunctionCallParams):
+        """Save the person in the open Add Person dialog — the user confirmed.
+
+        Only call when the ``<ui_state>`` shows the Add Person dialog open with
+        at least a name. The dialog writes to the database and opens the new
+        profile; you don't navigate or refresh.
+        """
+        draft = (self._screen.get("dialog") or {}).get("fields") or {}
+        person_name = (draft.get("name") or "").strip()
+        if not person_name:
+            await self._fail(params, "I still need their name before I can add them.")
             return
-        await self._navigate(f"/people/{person['id']}")
-        await self._refresh()
-        rel = f", your {relationship}" if relationship else ""
-        await self.respond_to_job(f"Added {person['name']}{rel}.", tts_speak=True)
+        await self.send_command("addPerson", {"submit": True})
+        await self.respond_to_job(f"Adding {person_name} now.", tts_speak=True)
+        await params.result_callback(None)
+
+    @tool
+    async def cancel_add_person(self, params: FunctionCallParams):
+        """Close the Add Person dialog without saving (the user changed their mind)."""
+        await self.send_command("addPerson", {"cancel": True})
+        await self.respond_to_job("Okay, I'll leave it.", tts_speak=True)
         await params.result_callback(None)
 
     @tool

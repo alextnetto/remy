@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { RtviProvider } from "@/components/voice/rtvi-provider";
 import { VoiceDock } from "@/components/voice/voice-dock";
+import { VoiceAddPersonDialog } from "@/components/people/voice-add-person-dialog";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -45,6 +46,8 @@ export default function RootLayout({
             {children}
           </div>
           <VoiceDock />
+          {/* Single shell-mounted dialog the voice agent opens/fills from any screen. */}
+          <VoiceAddPersonDialog />
           <Toaster position="top-center" richColors />
         </RtviProvider>
       </body>

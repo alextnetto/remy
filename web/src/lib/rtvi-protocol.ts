@@ -61,6 +61,32 @@ export interface SearchCommand {
 }
 
 /**
+ * The editable fields of the Add Person dialog. All optional — the agent fills
+ * whatever the user has said so far; successive `addPerson` commands MERGE
+ * (only the keys present overwrite).
+ */
+export interface AddPersonFields {
+  name?: string;
+  relationship?: string;
+  base?: string;
+  story?: string;
+}
+
+/**
+ * Drive the Add Person dialog so the agent *manifests* a new-person capture in
+ * the UI instead of writing to the API blind:
+ *   - `fields` (any subset) opens the dialog and merges those values in.
+ *   - `submit: true` saves the current draft (the user confirmed).
+ *   - `cancel: true` closes the dialog without saving.
+ */
+export interface AddPersonCommand {
+  type: "addPerson";
+  fields?: AddPersonFields;
+  submit?: boolean;
+  cancel?: boolean;
+}
+
+/**
  * A command the server sends to drive the client UI. Discriminated on
  * `type`. The action worker emits these after data ops / navigation.
  */
@@ -69,7 +95,8 @@ export type UICommand =
   | RefreshCommand
   | HighlightCommand
   | ToastCommand
-  | SearchCommand;
+  | SearchCommand
+  | AddPersonCommand;
 
 /** Literal union of every {@link UICommand} `type`. */
 export type UICommandType = UICommand["type"];
@@ -94,6 +121,17 @@ export interface VisibleItem {
 }
 
 /**
+ * A modal/overlay open on top of the current screen, reported so the worker
+ * can resolve follow-ups against it. The open form is the cross-turn memory of
+ * a guided capture (the worker itself is stateless per turn).
+ */
+export interface DialogState {
+  kind: "addPerson";
+  /** The current draft — each value present, "" when the field is empty. */
+  fields: AddPersonFields;
+}
+
+/**
  * The client reports its current screen on every navigation / view load
  * (tap- or voice-initiated). The worker injects this as `<ui_state>` each
  * turn so the actor LLM sees only the live screen + the current query.
@@ -106,6 +144,8 @@ export interface ScreenEvent {
   title: string;
   /** The addressable items currently on screen, in display order. */
   visible: VisibleItem[];
+  /** An open dialog/overlay (e.g. the Add Person capture), when present. */
+  dialog?: DialogState;
 }
 
 /** Sent once after the RTVI handshake completes so the worker can prime state. */
