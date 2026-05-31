@@ -69,6 +69,15 @@ import type {
 const BOT_START_URL =
   process.env.NEXT_PUBLIC_BOT_START_URL ?? "http://localhost:7860/start";
 
+/**
+ * Public API key for the Pipecat Cloud agent's `/start` endpoint, sent as a
+ * `Bearer` header on the start request. Empty for local dev (the local bot's
+ * `/start` needs no auth). Safe to expose client-side: Pipecat Cloud "public"
+ * keys (`pk_…`) are designed for browser use with public agents.
+ */
+const BOT_START_API_KEY =
+  process.env.NEXT_PUBLIC_PIPECAT_PUBLIC_API_KEY ?? "";
+
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
@@ -194,6 +203,11 @@ function VoiceState({ children }: { children: ReactNode }) {
       // matching the working music-player's connect params.
       await client.connect({
         endpoint: BOT_START_URL,
+        // Pipecat Cloud's public /start endpoint requires a Bearer public key.
+        // Omitted for local dev (BOT_START_API_KEY empty) where /start is open.
+        headers: BOT_START_API_KEY
+          ? new Headers({ Authorization: `Bearer ${BOT_START_API_KEY}` })
+          : undefined,
         requestData: {
           createDailyRoom: false,
           enableDefaultIceServers: true,

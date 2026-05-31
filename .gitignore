@@ -36,3 +36,6 @@ next-env.d.ts
 *.log
 coverage/
 **/.ruff_cache/
+
+# Local voice test fixtures (not part of the product)
+web/public/_voicetest/

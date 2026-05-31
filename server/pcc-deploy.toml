@@ -12,3 +12,22 @@ agent_profile = "agent-1x"
 	# model to run. "pro" = WebRTC (up to 32 kHz), which matches our Daily/WebRTC
 	# browser transport. Use "tel" instead only if routing through telephony.
 	audio_filter = "pro"
+
+[build]
+	# Pipecat cloud build: `pcc deploy` (no image arg) uploads this context and
+	# builds the arm64 image in the cloud — no Docker Hub / registry account.
+	context_dir = "."
+	dockerfile = "Dockerfile"
+
+[build.exclude]
+	# Trim the uploaded build context: keep secrets OUT (.env*), and drop heavy
+	# or irrelevant local artifacts. The Dockerfile only COPYs *.py + prm/, but
+	# excludes still matter because the whole context is uploaded to the builder.
+	patterns = [
+		".venv/",
+		"**/__pycache__/",
+		".ruff_cache/",
+		".env",
+		".env.*",
+		"*.md",
+	]
