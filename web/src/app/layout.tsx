@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { RtviProvider } from "@/components/voice/rtvi-provider";
 import { VoiceDock } from "@/components/voice/voice-dock";
-import { VoiceAddPersonDialog } from "@/components/people/voice-add-person-dialog";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -17,9 +16,20 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PRM — Personal Relation Manager",
+  title: "Remy",
   description:
-    "Remember the people who matter. A mobile-first personal relationship manager with an optional voice agent.",
+    "Remember the people who matter. A mobile-first personal relationship manager with a voice agent.",
+  openGraph: {
+    title: "Remy",
+    description: "Remember the people who matter.",
+    siteName: "Remy",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Remy",
+    description: "Remember the people who matter.",
+  },
 };
 
 export const viewport: Viewport = {
@@ -46,8 +56,6 @@ export default function RootLayout({
             {children}
           </div>
           <VoiceDock />
-          {/* Single shell-mounted dialog the voice agent opens/fills from any screen. */}
-          <VoiceAddPersonDialog />
           <Toaster position="top-center" richColors />
         </RtviProvider>
       </body>

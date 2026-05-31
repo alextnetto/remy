@@ -2,13 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Bell, Search, Users, X } from "lucide-react";
+import { Bell, Plus, Search, Users, X } from "lucide-react";
 
 import { AppHeader } from "@/components/shared/app-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AddPersonDialog } from "@/components/people/add-person-dialog";
 import { PeopleListSkeleton } from "@/components/people/people-list-skeleton";
 import { PersonRow } from "@/components/people/person-row";
 import { TodayStrip } from "@/components/today/today-strip";
@@ -129,7 +128,7 @@ export default function HomePage() {
   return (
     <>
       <AppHeader
-        title="People"
+        title="Remy"
         leading={
           <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
             <Users className="size-5" />
@@ -146,7 +145,10 @@ export default function HomePage() {
             >
               <Bell className="size-5" />
             </Button>
-            <AddPersonDialog />
+            <Button size="sm" nativeButton={false} render={<Link href="/people/new" />}>
+              <Plus />
+              Add
+            </Button>
           </div>
         }
       />
@@ -216,7 +218,12 @@ export default function HomePage() {
                 icon={Users}
                 title="No people yet"
                 description="Add the people who matter, or just say it out loud with the voice agent."
-                action={<AddPersonDialog />}
+                action={
+                  <Button nativeButton={false} render={<Link href="/people/new" />}>
+                    <Plus />
+                    Add a person
+                  </Button>
+                }
               />
             )
           ) : (

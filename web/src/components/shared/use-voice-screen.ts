@@ -61,13 +61,34 @@ export function useHighlightTarget(): void {
   useEffect(() => {
     return voiceBridge.onHighlight((id) => {
       if (typeof document === "undefined") return;
-      const el = document.querySelector<HTMLElement>(
-        `[data-highlight-id="${CSS.escape(id)}"]`,
-      );
-      if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("voice-highlight");
-      window.setTimeout(() => el.classList.remove("voice-highlight"), 2200);
+      const selector = `[data-highlight-id="${CSS.escape(id)}"]`;
+
+      const apply = (el: HTMLElement) => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Restart the animation even if the class is already present.
+        el.classList.remove("voice-highlight");
+        requestAnimationFrame(() => {
+          el.classList.add("voice-highlight");
+          window.setTimeout(() => el.classList.remove("voice-highlight"), 1300);
+        });
+      };
+
+      // The target may not be in the DOM yet: an agent edit emits `refresh`
+      // then `highlight`, so the refetched element (or a navigated-to screen)
+      // mounts a beat later. Try now, then poll briefly until it appears.
+      const tryNow = () => {
+        const el = document.querySelector<HTMLElement>(selector);
+        if (el) {
+          apply(el);
+          return true;
+        }
+        return false;
+      };
+      if (tryNow()) return;
+      const start = performance.now();
+      const iv = window.setInterval(() => {
+        if (tryNow() || performance.now() - start > 2500) window.clearInterval(iv);
+      }, 120);
     });
   }, []);
 }

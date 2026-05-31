@@ -78,9 +78,9 @@ composing the answer from the <ui_state> only.
 
 ## Adding a person (guided, in the UI)
 "Add a person", "create a contact", "I met someone…" -> add_person. This OPENS \
-and FILLS the on-screen Add Person dialog; it does NOT save. Pass only the \
+and FILLS the on-screen Add Person page; it does NOT save. Pass only the \
 fields the user actually said (name, relationship, base, story). If the \
-<ui_state> shows the Add Person dialog already OPEN, keep using add_person to \
+<ui_state> shows the Add Person page already OPEN, keep using add_person to \
 fill or correct fields as the user gives them — they merge into the open form. \
 When the user confirms ("add them", "save", "that's it") -> save_person. If \
 they back out ("never mind", "cancel that") -> cancel_add_person. Don't \
@@ -208,7 +208,7 @@ class PRMActionWorker(UIWorker):
         if isinstance(dialog, dict) and dialog.get("kind") == "addPerson":
             fields = dialog.get("fields") or {}
             lines.append("")
-            lines.append("The Add Person dialog is OPEN (the user is adding someone). Current draft:")
+            lines.append("The Add Person page is OPEN (the user is adding someone). Current draft:")
             for key in ("name", "relationship", "base", "story"):
                 val = (fields.get(key) or "").strip()
                 lines.append(f"  - {key}: {val or '(empty)'}")
@@ -346,6 +346,16 @@ class PRMActionWorker(UIWorker):
     async def _refresh(self) -> None:
         await self.send_command("refresh", {})
 
+    async def _highlight(self, target: str) -> None:
+        """Flash an on-screen element after a change (record id or 'field:<name>').
+
+        Call AFTER ``_refresh`` so the client highlights the freshly-rendered
+        element. The client polls briefly for the target, so a small render lag
+        is fine. ``target`` matches a ``data-highlight-id`` in the web app.
+        """
+        if target:
+            await self.send_command("highlight", {"targetId": target})
+
     # ==================================================================
     # Tools — Navigation / UI (spec §6)
     # ==================================================================
@@ -454,12 +464,12 @@ class PRMActionWorker(UIWorker):
         base: str | None = None,
         story: str | None = None,
     ):
-        """Open the Add Person dialog and fill in what the user has said so far.
+        """Open the Add Person page and fill in what the user has said so far.
 
         This DRIVES THE UI; it does NOT save. Call it to open the capture, and
         again to add or correct fields as the user gives them (fields MERGE into
         the open form). Save only when the user confirms, via ``save_person``.
-        If the ``<ui_state>`` already shows the Add Person dialog open, use this
+        If the ``<ui_state>`` already shows the Add Person page open, use this
         to fill more fields. Pass ONLY what the user actually said.
 
         Args:
@@ -505,9 +515,9 @@ class PRMActionWorker(UIWorker):
 
     @tool
     async def save_person(self, params: FunctionCallParams):
-        """Save the person in the open Add Person dialog — the user confirmed.
+        """Save the person in the open Add Person page — the user confirmed.
 
-        Only call when the ``<ui_state>`` shows the Add Person dialog open with
+        Only call when the ``<ui_state>`` shows the Add Person page open with
         at least a name. The dialog writes to the database and opens the new
         profile; you don't navigate or refresh.
         """
@@ -522,7 +532,7 @@ class PRMActionWorker(UIWorker):
 
     @tool
     async def cancel_add_person(self, params: FunctionCallParams):
-        """Close the Add Person dialog without saving (the user changed their mind)."""
+        """Close the Add Person page without saving (the user changed their mind)."""
         await self.send_command("addPerson", {"cancel": True})
         await self.respond_to_job("Okay, I'll leave it.", tts_speak=True)
         await params.result_callback(None)
@@ -575,6 +585,15 @@ class PRMActionWorker(UIWorker):
             return
         await self._navigate(f"/people/{person['id']}")
         await self._refresh()
+        # Flash the field that changed (matches data-highlight-id in the web app).
+        field_targets = {
+            "relationshipToMe": "field:relationship",
+            "base": "field:base",
+            "story": "field:story",
+            "name": "field:name",
+            "interests": "field:interests",
+        }
+        await self._highlight(field_targets.get(next(iter(patch), ""), ""))
         await self.respond_to_job(f"Updated {person['name']}.", tts_speak=True)
         await params.result_callback(None)
 
@@ -632,13 +651,16 @@ class PRMActionWorker(UIWorker):
             await self._fail(params, "What should the note say?")
             return
         try:
-            await self.api.add_note(person["id"], body_text=body.strip())
+            note = await self.api.add_note(person["id"], body_text=body.strip())
         except PRMApiError as exc:
             await self._fail(params, f"I couldn't save the note for {person['name']}.")
             logger.warning(f"{self}: add_note failed: {exc}")
             return
         await self._navigate(f"/people/{person['id']}")
         await self._refresh()
+        # Flash the freshly-added note (notes-section sets data-highlight-id={note.id}).
+        if isinstance(note, dict) and note.get("id"):
+            await self._highlight(note["id"])
         await self.respond_to_job(f"Noted for {person['name']}.", tts_speak=True)
         await params.result_callback(None)
 

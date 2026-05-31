@@ -54,6 +54,7 @@ import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import { voiceBridge } from "@/lib/voice-bridge";
 import type {
   AddPersonCommand,
+  AddPersonFields,
   HighlightCommand,
   NavigateCommand,
   SearchCommand,
@@ -295,14 +296,21 @@ function UICommandBridge() {
             break;
           }
           case "addPerson": {
-            // Open / fill / submit / cancel the (shell-mounted) Add Person
-            // dialog. It's available on every screen, so no navigation needed.
+            // The capture lives on the /people/new page. If we're not there
+            // yet, stash any fields and navigate — the page applies them on
+            // mount. Once there, the page handles fill/submit/cancel directly.
             const { fields, submit, cancel } = payload as Partial<AddPersonCommand>;
-            voiceBridge.emitAddPerson({
-              fields: fields && typeof fields === "object" ? fields : undefined,
-              submit: submit === true,
-              cancel: cancel === true,
-            });
+            const hasFields = !!fields && typeof fields === "object";
+            if (hasFields && pathname !== "/people/new") {
+              voiceBridge.setPendingAddPerson(fields as AddPersonFields);
+              router.push("/people/new");
+            } else {
+              voiceBridge.emitAddPerson({
+                fields: hasFields ? (fields as AddPersonFields) : undefined,
+                submit: submit === true,
+                cancel: cancel === true,
+              });
+            }
             break;
           }
           default: {

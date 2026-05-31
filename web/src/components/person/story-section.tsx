@@ -101,11 +101,14 @@ export function StorySection({
           maxLength={2000}
         />
       ) : story ? (
-        <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">
+        <p
+          data-highlight-id="field:story"
+          className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90"
+        >
           {story}
         </p>
       ) : (
-        <p className="text-sm text-muted-foreground">
+        <p data-highlight-id="field:story" className="text-sm text-muted-foreground">
           No story yet. Capture how you know them.
         </p>
       )}

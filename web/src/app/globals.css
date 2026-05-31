@@ -136,18 +136,23 @@
  * ------------------------------------------------------------------------- */
 @keyframes voice-highlight-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--ring);
+    background-color: color-mix(in oklch, var(--primary) 24%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 55%, transparent);
   }
   30% {
-    box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 55%, transparent);
+    background-color: color-mix(in oklch, var(--primary) 16%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 40%, transparent);
   }
   100% {
+    background-color: transparent;
     box-shadow: 0 0 0 0 transparent;
   }
 }
 
 .voice-highlight {
-  animation: voice-highlight-pulse 2.2s ease-out;
+  /* Quick flash when the agent changes a field/record. Restarted by
+     useHighlightTarget (remove → rAF → re-add) so repeat edits re-trigger. */
+  animation: voice-highlight-pulse 1.2s ease-out;
   border-radius: var(--radius-lg);
 }
 

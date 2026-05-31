@@ -75,9 +75,11 @@ const screen = channel<ScreenReport>();
 let current: ScreenReport | null = null;
 // One-shot search applied after Home mounts (set before a navigate-to-Home).
 let pendingSearch: string | null = null;
-// The Add Person dialog's live draft, merged into every screen report so the
-// (stateless) worker can resolve guided follow-ups against the open form.
+// The Add Person draft, merged into every screen report so the (stateless)
+// worker can resolve guided follow-ups against the open form.
 let currentDialog: DialogState | null = null;
+// Fields stashed before navigating to /people/new; the page applies them on mount.
+let pendingAddPerson: AddPersonFields | null = null;
 
 /** Current screen + any open dialog, as the single report the worker sees. */
 function combinedScreen(): ScreenReport | null {
@@ -117,11 +119,21 @@ export const voiceBridge = {
     return q;
   },
 
-  /** Subscribe to Add Person dialog control (the dialog opens/fills/submits). */
+  /** Subscribe to Add Person control (the /people/new page fills/submits/cancels). */
   onAddPerson: (fn: Listener<AddPersonControl>) => addPerson.on(fn),
-  /** Voice client: call on an `addPerson` UICommand. */
+  /** Voice client: call on an `addPerson` UICommand (when already on the page). */
   emitAddPerson: (control: AddPersonControl) => addPerson.emit(control),
-  /** Add Person dialog: publish its live draft while open (null when closed). */
+  /** Voice client: stash fields to apply once /people/new mounts (before navigating). */
+  setPendingAddPerson: (fields: AddPersonFields) => {
+    pendingAddPerson = fields;
+  },
+  /** Add Person page: read & clear the pending fields (null if none). */
+  consumePendingAddPerson: (): AddPersonFields | null => {
+    const f = pendingAddPerson;
+    pendingAddPerson = null;
+    return f;
+  },
+  /** Add Person page: publish its live draft while mounted (null when gone). */
   reportDialog: (dialog: DialogState | null) => {
     currentDialog = dialog;
     emitScreen();

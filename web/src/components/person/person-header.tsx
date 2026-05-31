@@ -49,18 +49,23 @@ export function PersonHeader({ person }: { person: PersonDetail }) {
       />
 
       <div className="space-y-1">
-        <h1 className="font-heading text-2xl leading-tight font-semibold">
+        <h1
+          data-highlight-id="field:name"
+          className="font-heading text-2xl leading-tight font-semibold"
+        >
           {person.name}
         </h1>
         <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
           {person.relationshipToMe ? (
-            <span className="capitalize">{person.relationshipToMe}</span>
+            <span data-highlight-id="field:relationship" className="capitalize">
+              {person.relationshipToMe}
+            </span>
           ) : null}
           {person.relationshipToMe && person.base ? (
             <span className="text-border">·</span>
           ) : null}
           {person.base ? (
-            <span className="flex items-center gap-1">
+            <span data-highlight-id="field:base" className="flex items-center gap-1">
               <MapPin className="size-3.5" />
               {person.base}
             </span>
@@ -69,7 +74,7 @@ export function PersonHeader({ person }: { person: PersonDetail }) {
       </div>
 
       {person.interests.length > 0 ? (
-        <div className="flex flex-wrap justify-center gap-1.5">
+        <div data-highlight-id="field:interests" className="flex flex-wrap justify-center gap-1.5">
           {person.interests.map((interest) => (
             <Badge key={interest} variant="secondary" className="font-normal">
               {interest}
